@@ -39,7 +39,7 @@ all_shingles = set().union(*data['Shingles'])
 shingle_to_idx = {shingle: idx for idx, shingle in enumerate(all_shingles)}
 
 # Minhashing
-n_hashes = 1000  # Number of hash functions
+n_hashes = 100  # Number of hash functions
 hash_functions = [lambda x, seed=seed: murmurhash3_32(x, seed=seed) for seed in range(n_hashes)]
 
 def minhash_signature(shingles, n_hashes, shingle_to_idx):
@@ -69,7 +69,7 @@ def lsh(signatures, bands, rows):
             buckets[band_signature].append(doc_id)
     return buckets
 
-bands = 20  # Number of bands
+bands = 100  # Number of bands
 rows = n_hashes // bands  # Rows per band
 lsh_buckets = lsh(data['Minhash'], bands, rows)
 
@@ -91,13 +91,15 @@ for doc1, doc2 in similar_pairs:
     jaccard_sim = len(shingles1 & shingles2) / len(shingles1 | shingles2)
     if jaccard_sim > 0.3:  # Similarity threshold
         G.add_edge(doc1, doc2, weight=jaccard_sim)
-
+print('Number of nodes:', G.number_of_nodes())
+print('Number of edges:', G.number_of_edges())
 # Apply Louvain community detection
 partition = community_louvain.best_partition(G, weight='weight')
 
 # Add partition labels to the graph as node attributes
 nx.set_node_attributes(G, partition, 'community')
-
+print('Number of communities:', len(set(partition.values())))
+print('Modularity:', community_louvain.modularity(partition, G))
 # Save the graph to a .gexf file
 nx.write_gexf(G, 'graph_with_communities.gexf')
 
