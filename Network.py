@@ -1,23 +1,39 @@
 import pandas as pd
-from nltk.corpus import stopwords
 import nltk
-from sklearn.feature_extraction.text import TfidfVectorizer
-from collections import Counter
-import pandas as pd
+from nltk.corpus import stopwords
+from sklearn.utils import murmurhash3_32
 import numpy as np
 import networkx as nx
-from sklearn.utils import murmurhash3_32
 from itertools import combinations
 from community import community_louvain  # For Louvain method
+import re 
+import random
+random.seed(42)
 
-# read file
+# Download NLTK stopwords
+nltk.download('stopwords')
+
+# Load data
 file_path = 'medicine_details.csv'
 data = pd.read_csv(file_path)
-nltk.download('stopwords')
+
+# Text preprocessing: remove stopwords and specific terms
 stop_words = set(stopwords.words('english'))
 stop_words.add('treatment')
-# delete the stop words and treament
-data['Uses'] = data['Uses'].apply(lambda x: ' '.join([word for word in str(x).split() if word.lower() not in stop_words]))
+
+# Remove stopwords and parentheses without removing their content
+def clean_text(text):
+    """
+    Remove stopwords and parentheses '(' and ')', but keep the content inside parentheses.
+    """
+    # Remove parentheses while keeping their content
+    text = re.sub(r'[()]', '', text)
+    # Remove stopwords
+    words = [word for word in text.split() if word.lower() not in stop_words]
+    return ' '.join(words)
+
+# Apply to the 'Uses' column
+data['Uses'] = data['Uses'].apply(lambda x: clean_text(str(x)))
 
 
 # Function to generate shingles
@@ -69,7 +85,7 @@ def lsh(signatures, bands, rows):
             buckets[band_signature].append(doc_id)
     return buckets
 
-bands = 100  # Number of bands
+bands = 20  # Number of bands
 rows = n_hashes // bands  # Rows per band
 lsh_buckets = lsh(data['Minhash'], bands, rows)
 
@@ -89,18 +105,16 @@ for doc1, doc2 in similar_pairs:
     shingles2 = data.loc[doc2, 'Shingles']
     # Compute Jaccard similarity
     jaccard_sim = len(shingles1 & shingles2) / len(shingles1 | shingles2)
-    if jaccard_sim > 0.3:  # Similarity threshold
+    if jaccard_sim > 0.8:  # Similarity threshold
         G.add_edge(doc1, doc2, weight=jaccard_sim)
-print('Number of nodes:', G.number_of_nodes())
-print('Number of edges:', G.number_of_edges())
+
 # Apply Louvain community detection
 partition = community_louvain.best_partition(G, weight='weight')
 
-# Add partition labels to the graph as node attributes
+# Add community labels to the graph as node attributes
 nx.set_node_attributes(G, partition, 'community')
-print('Number of communities:', len(set(partition.values())))
-print('Modularity:', community_louvain.modularity(partition, G))
-# Save the graph to a .gexf file
+
+# Save the graph with communities
 nx.write_gexf(G, 'graph_with_communities.gexf')
 
 # Add community labels to the dataframe
@@ -109,3 +123,8 @@ data['Community'] = data.index.map(partition)
 # Save the data with community information
 data.to_csv('data_with_communities.csv', index=False)
 
+# Print summary
+print('Number of nodes:', G.number_of_nodes())
+print('Number of edges:', G.number_of_edges())
+print('Number of communities:', len(set(partition.values())))
+print('Modularity:', community_louvain.modularity(partition, G))
