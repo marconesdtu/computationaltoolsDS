@@ -5,7 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 
 # Define the file paths
-file1 = '/home/marco/DTU/CTfDS/project/computationaltoolsDS/medicine_details.csv'
+file1 = 'medicine_details.csv'
 
 # Read the Excel files
 data = pd.read_csv(file1)
@@ -94,11 +94,12 @@ for i, rating in enumerate(ratings):
         count_similar = len(similar_indices)
         
         medicine_scores.append({
-            'medicine_index': i,  # Store index
+            'Medicine Name': data['Medicine Name'][i],  # Store index
             'rating': rating,
             'delta_avg': delta_avg,
             'delta_min': delta_min,
-            'count_similar': count_similar
+            'count_similar': count_similar,
+            'Uses': data['Uses'][i]
         })
 
 # Step 5: Create DataFrame and rank medicines
@@ -115,24 +116,22 @@ filtered_meds['obsolescence_score'] = (
    - 0.5 * filtered_meds['delta_avg'] - 0.3 * filtered_meds['delta_min'] - 0.2 * filtered_meds['rating']
 )
 
-# Select the bottom 5%
-top_5_percent = filtered_meds.nlargest(
-    int(0.05 * len(filtered_meds)), 'obsolescence_score'
-)
+num_to_select = max(1, int(0.05 * len(filtered_meds)))
 
+top_5_percent = filtered_meds.nlargest(num_to_select, 'obsolescence_score')
+
+# print(top_5_percent)
 # Step 6: Output results
-top_5_percent = top_5_percent.merge(
-    data.reset_index(), left_on='medicine_index', right_index=True
-)
+# top_5_percent = top_5_percent.sort_values(by='obsolescence_score', ascending=False)
 print("Top 5% Medicines Likely to Become Obsolete:")
-print(top_5_percent[['medicine_index', 'Uses', 'rating', 'obsolescence_score']])
+print(top_5_percent[['Medicine Name', 'Uses', 'rating', 'obsolescence_score']])
 
 # Load data
-data2 = pd.read_csv('/home/marco/DTU/CTfDS/project/computationaltoolsDS/data_with_communities.csv')
+data2 = pd.read_csv('data_with_communities.csv')
 data2['obsolescence_score'] = filtered_meds['obsolescence_score']
-
+# data2['medicine_index'] = 
 # Step 1: Extract relevant columns
-data2['Community'] = data2.iloc[:, 10]  # 11th column for Community
+# data2['Community'] = data2.iloc[:, 10]  # 11th column for Community
 
 # # Step 1.5: Select 10 random communities
 # random_communities = np.random.choice(data2['Community'].unique(), 50, replace=False)
@@ -153,13 +152,13 @@ filtered_data2['distance_from_center'] = filtered_data2.apply(
 
 
 # Marked data: Ensure the 'medicine_index' exists in top_5_percent
-filtered_data2['medicine_index'] = filtered_data2.iloc[:, 0]
+filtered_data2['Medicine Name'] = filtered_data2.iloc[:, 0]
 
 # Marked data: Ensure the 'medicine_index' exists in top_5_percent
-if 'medicine_index' in filtered_data2.columns and 'medicine_index' in top_5_percent.columns:
-    marked_data = filtered_data2[filtered_data2['medicine_index'].isin(top_5_percent['medicine_index'])]
-else:
-    marked_data = pd.DataFrame()
+# df1_common = df1[df1["column_name"].isin(df2["column_name"])]:
+marked_data = filtered_data2[filtered_data2['Medicine Name'].isin(top_5_percent['Medicine Name'])]
+# else:
+#     marked_data = pd.DataFrame()
 
 plt.figure(figsize=(15, 10))
 
