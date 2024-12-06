@@ -1,67 +1,41 @@
 import pandas as pd
-import nltk
+import re
 from nltk.corpus import stopwords
 from sklearn.utils import murmurhash3_32
 import numpy as np
-import networkx as nx
-from itertools import combinations
-from community import community_louvain  # For Louvain method
-import re 
-import random
-random.seed(42)
-
-# Download NLTK stopwords
-nltk.download('stopwords')
 
 # Load data
 file_path = 'medicine_details.csv'
 data = pd.read_csv(file_path)
 
-# Text preprocessing: remove stopwords and specific terms
+# Preprocess text
 stop_words = set(stopwords.words('english'))
 stop_words.add('treatment')
 
-# Remove stopwords and parentheses without removing their content
 def clean_text(text):
-    """
-    Remove stopwords and parentheses '(' and ')', but keep the content inside parentheses.
-    """
-    # Remove parentheses while keeping their content
     text = re.sub(r'[()]', '', text)
-    # Remove stopwords
     words = [word for word in text.split() if word.lower() not in stop_words]
     return ' '.join(words)
 
-# Apply to the 'Uses' column
 data['Uses'] = data['Uses'].apply(lambda x: clean_text(str(x)))
 
-
-# Function to generate shingles
+# Generate shingles
 def create_shingles(text, k=3):
-    """
-    Split text into k-shingles (n-grams of size k).
-    """
     words = text.split()
     if len(words) < k:
         return set(words)
-    return set([' '.join(words[i:i+k]) for i in range(len(words) - k + 1)])
+    return set([' '.join(words[i:i + k]) for i in range(len(words) - k + 1)])
 
-# Generate shingles for each document
-k = 3  # Size of shingles
 data['Shingles'] = data['Uses'].apply(lambda x: create_shingles(str(x)))
 
-# Create the universe of shingles and map them to indices
+# Generate MinHash signatures
 all_shingles = set().union(*data['Shingles'])
 shingle_to_idx = {shingle: idx for idx, shingle in enumerate(all_shingles)}
 
-# Minhashing
-n_hashes = 100  # Number of hash functions
+n_hashes = 100
 hash_functions = [lambda x, seed=seed: murmurhash3_32(x, seed=seed) for seed in range(n_hashes)]
 
 def minhash_signature(shingles, n_hashes, shingle_to_idx):
-    """
-    Generate a Minhash signature for a set of shingles.
-    """
     signature = np.full(n_hashes, np.inf)
     for shingle in shingles:
         shingle_idx = shingle_to_idx[shingle]
@@ -73,58 +47,27 @@ data['Minhash'] = data['Shingles'].apply(lambda x: minhash_signature(x, n_hashes
 
 # Locality Sensitive Hashing (LSH)
 def lsh(signatures, bands, rows):
-    """
-    Perform Locality Sensitive Hashing (LSH) to group similar documents.
-    """
     buckets = {}
     for doc_id, signature in enumerate(signatures):
         for band in range(bands):
-            band_signature = tuple(signature[band*rows:(band+1)*rows])
+            band_signature = tuple(signature[band * rows:(band + 1) * rows])
             if band_signature not in buckets:
                 buckets[band_signature] = []
             buckets[band_signature].append(doc_id)
     return buckets
 
-bands = 20  # Number of bands
-rows = n_hashes // bands  # Rows per band
+bands = 20
+rows = n_hashes // bands
 lsh_buckets = lsh(data['Minhash'], bands, rows)
 
-# Find potential similar document pairs
-similar_pairs = set()
-for bucket_docs in lsh_buckets.values():
-    if len(bucket_docs) > 1:
-        similar_pairs.update(combinations(bucket_docs, 2))
+# Display buckets
+bucket_data = {
+    bucket_id: [data.iloc[doc_id]['Uses'] for doc_id in doc_ids]
+    for bucket_id, doc_ids in lsh_buckets.items()
+}
 
-# Build a graph of similar documents
-G = nx.Graph()
-G.add_nodes_from(range(len(data)))  # Add nodes for each document
+bucket_df = pd.DataFrame(
+    [{"Bucket": bucket_id, "Documents": doc_texts} for bucket_id, doc_texts in bucket_data.items()]
+)
 
-# Add edges based on similar pairs
-for doc1, doc2 in similar_pairs:
-    shingles1 = data.loc[doc1, 'Shingles']
-    shingles2 = data.loc[doc2, 'Shingles']
-    # Compute Jaccard similarity
-    jaccard_sim = len(shingles1 & shingles2) / len(shingles1 | shingles2)
-    if jaccard_sim > 0.8:  # Similarity threshold
-        G.add_edge(doc1, doc2, weight=jaccard_sim)
-
-# Apply Louvain community detection
-partition = community_louvain.best_partition(G, weight='weight')
-
-# Add community labels to the graph as node attributes
-nx.set_node_attributes(G, partition, 'community')
-
-# Save the graph with communities
-nx.write_gexf(G, 'graph_with_communities.gexf')
-
-# Add community labels to the dataframe
-data['Community'] = data.index.map(partition)
-
-# Save the data with community information
-data.to_csv('data_with_communities.csv', index=False)
-
-# Print summary
-print('Number of nodes:', G.number_of_nodes())
-print('Number of edges:', G.number_of_edges())
-print('Number of communities:', len(set(partition.values())))
-print('Modularity:', community_louvain.modularity(partition, G))
+import ace_tools as tools; tools.display_dataframe_to_user(name="Buckets with Document Data", dataframe=bucket_df)
